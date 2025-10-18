@@ -1,0 +1,18 @@
+name: mod
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.8
+  - numpy=1.23.5
+  - pandas=2.0.3
+  - scikit-learn=1.2.2
+  - matplotlib=3.1.2
+  - tqdm=4.64.1
+  - tensorboard=2.13.0
+  - pytz=2022.6
+  - pytorch=2.4.1
+  - torchvision=0.19.1
+  - torchaudio=2.4.1
+  - pytorch-cuda=12.1
