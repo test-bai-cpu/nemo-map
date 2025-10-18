@@ -1,6 +1,9 @@
 
 # Run the experiments
 
+## Clone the code
+after `git clone`, also do `git lfs pull`, to pull the large data files in `atc/`
+
 
 ## Setup environment
 ``` bash
