@@ -112,8 +112,6 @@ def circ_diff_signed(a, b):
 
 #### align with DL GMM nll calculation
 def nll_of_point(gmm_components, point):
-    prob_total = 0
-    
     v = float(point['speed'])
     a = float(point['motion_angle'])
     
@@ -125,28 +123,21 @@ def nll_of_point(gmm_components, point):
     c12  = gmm_components['cov2'].to_numpy()
     c21  = gmm_components['cov3'].to_numpy()
     c22  = gmm_components['cov4'].to_numpy()
-    
-    wraps = np.array([a - 2*np.pi, a, a + 2*np.pi], dtype=np.float64)   # (3,)
-    for aw in wraps:
-        ds = v - mu_s                          # (K,)
-        da = circ_diff_signed(aw, mu_a)    # (K,)
-        det = c11 * c22 - c12 * c21                      # (K,)
-        det = np.clip(det, 1e-12, None)   
-        
-        inv00 =  c22 / det
-        inv01 = -c12 / det
-        inv10 = -c21 / det
-        inv11 =  c11 / det
-        
-        maha = ds*(inv00*ds + inv01*da) + da*(inv10*ds + inv11*da)
 
-        norm_const = 2*np.pi * np.sqrt(det)                               # (K,)
-        comp_prob = np.exp(-0.5 * maha) / norm_const                      # (K,)
-
-        # mix with weights
-        prob_wrap = np.sum(w * comp_prob)                                 # scalar
-        prob_total += prob_wrap
-
+    det = np.clip(c11 * c22 - c12 * c21, 1e-12, None)   # (K,)
+    inv00, inv01 = c22 / det, -c12 / det
+    inv10, inv11 = -c21 / det, c11 / det
+    norm_const = 2 * np.pi * np.sqrt(det)               # (K,)
+ 
+    ds  = v - mu_s                                      # (K,) speed: never shifted
+    da0 = circ_diff_signed(a, mu_a)                     # (K,) step 1: wrap once
+ 
+    prob_total = 0.0
+    for k in (-1, 0, 1):
+        da = da0 + 2 * np.pi * k                        # step 2: shift, no re-wrap
+        maha = ds * (inv00 * ds + inv01 * da) + da * (inv10 * ds + inv11 * da)
+        prob_total += np.sum(w * np.exp(-0.5 * maha) / norm_const)
+ 
     prob_total = max(prob_total, 1e-12)
     nll = -np.log(prob_total)
     return nll

@@ -46,13 +46,13 @@ if __name__ == "__main__":
     model_name = args.model
 
     if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time"
+        exp_name = f"distri_gmm_feature_time_v2"
         model = models.MoDGMMFeatureTimeModel(input_size=3, num_components=3)
     elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time"
+        exp_name = f"distri_gmm_feature_ff_time_v2"
         model = models.MoDGMMFeatureFFModel(input_size=3, num_components=3)
     elif model_name == "siren":
-        exp_name = f"distri_gmm_siren"
+        exp_name = f"distri_gmm_siren_v2"
         model = models.MoDGMMSirenHybridModel(input_size=3, num_components=3)
 
     log_dir = f"runs/{exp_name}/{int(time.time())}"

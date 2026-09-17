@@ -1,0 +1,4 @@
+method,NLL,NLL-reduction,CI
+ours,1.844 ± 1.969,-,-
+temporal grid,1.946 ± 2.107,0.101,[0.101,0.102]
+fourier features,1.928 ± 2.085,0.083,[0.083,0.084]

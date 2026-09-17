@@ -72,13 +72,13 @@ def evaluate_hour(hour):
         ]
 
     if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time"
+        exp_name = f"distri_gmm_feature_time_v2"
         model = models.MoDGMMFeatureTimeModel(input_size=3, num_components=3)
     elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time"
+        exp_name = f"distri_gmm_feature_ff_time_v2"
         model = models.MoDGMMFeatureFFModel(input_size=3, num_components=3)
     elif model_name == "siren":
-        exp_name = f"distri_gmm_siren"
+        exp_name = f"distri_gmm_siren_v2"
         model = models.MoDGMMSirenHybridModel(input_size=3, num_components=3)
 
     model_file = f"models/{exp_name}/best.pt"
@@ -123,13 +123,13 @@ def evaluate_all(model_name):
         ]
 
     if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time"
+        exp_name = f"distri_gmm_feature_time_v2"
         model = models.MoDGMMFeatureTimeModel(input_size=3, num_components=3)
     elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time"
+        exp_name = f"distri_gmm_feature_ff_time_v2"
         model = models.MoDGMMFeatureFFModel(input_size=3, num_components=3)
     elif model_name == "siren":
-        exp_name = f"distri_gmm_siren"
+        exp_name = f"distri_gmm_siren_v2"
         model = models.MoDGMMSirenHybridModel(input_size=3, num_components=3)
 
     model_file = f"models/{exp_name}/best.pt"
@@ -149,7 +149,7 @@ def evaluate_all(model_name):
     out.to_csv(f"{save_per_sample_outdir}/atc-all.csv", index=False)
     print(f"Saved per-sample NLLs to {save_per_sample_outdir}")
     
-    print(f"Average NLL: {mean_nll:.6f} | Std: {std_nll:.6f}")
+    print(f"Average NLL: {mean_nll:.3f} | Std: {std_nll:.3f}")
 
     # file_name = f"results/{exp_name}/atc-all.txt"
     # os.makedirs(f"results/{exp_name}", exist_ok=True)

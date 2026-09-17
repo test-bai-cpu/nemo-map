@@ -36,11 +36,11 @@ if __name__ == "__main__":
     version = args.version
 
     if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time"
+        exp_name = f"distri_gmm_feature_time_v2"
     elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time"
+        exp_name = f"distri_gmm_feature_ff_time_v2"
     elif model_name == "siren":
-        exp_name = f"distri_gmm_siren"
+        exp_name = f"distri_gmm_siren_v2"
 
     for hour in range(9,21):
         print(hour)
