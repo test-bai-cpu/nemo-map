@@ -24,6 +24,15 @@ def read_test_data(datafile, dataset="ATC", x_min=-60.0, x_max=80.0, y_min=-40.0
             test_data.columns = ["time", "person_id", "x", "y", "speed", "motion_angle"]
             test_data['motion_angle'] = np.mod(test_data['motion_angle'], 2 * np.pi)
             test_data = test_data[['time', 'x', 'y', 'speed', 'motion_angle']]
+    elif dataset.startswith(("ETH", "UCY")):
+        # eth_ucy/*.csv has a header and velocity columns; ETHUCYDataset converts them to
+        # time / x / y / speed / motion_angle exactly as train.py sees them.
+        from dataset import ETHUCYDataset
+        files = datafile if isinstance(datafile, list) else [datafile]
+        test_data = pd.concat([ETHUCYDataset(f).data for f in files], ignore_index=True)
+        test_data = test_data[['time', 'x', 'y', 'speed', 'motion_angle']]
+    else:
+        raise ValueError(f"Unknown dataset '{dataset}' (expected 'ATC' or an ETH-*/UCY-* name)")
 
     test_data = test_data[(test_data["x"] >= x_min) & (test_data["x"] <= x_max) &
                           (test_data["y"] >= y_min) & (test_data["y"] <= y_max)]
@@ -46,6 +55,8 @@ def read_test_data_with_hour(hour, datafile, dataset="ATC", x_min=-60.0, x_max=8
             test_data.columns = ["time", "person_id", "x", "y", "speed", "motion_angle"]
             test_data['motion_angle'] = np.mod(test_data['motion_angle'], 2 * np.pi)
             test_data = test_data[['time', 'x', 'y', 'speed', 'motion_angle']]
+    else:
+        raise ValueError(f"read_test_data_with_hour is ATC-only (needs unix timestamps); got dataset '{dataset}'")
 
     test_data = test_data[(test_data["x"] >= x_min) & (test_data["x"] <= x_max) &
                           (test_data["y"] >= y_min) & (test_data["y"] <= y_max)]

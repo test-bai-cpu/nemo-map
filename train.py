@@ -5,10 +5,10 @@ import random
 import argparse
 import torch
 
-from dataset import HumanMotionTimeDataset, get_dataloader_onlytrainval
+from dataset import HumanMotionTimeDataset, ETHUCYDataset, get_dataloader_onlytrainval
 import models
 import loss_funcs
-from utils import normalize_coords_space_time, normalize_coords_siren
+from utils import normalize_coords_space_time, normalize_coords_siren, load_dataset_config, get_exp_name, DATASET_CHOICES
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -25,6 +25,14 @@ def set_random_seed(seed):
 
 def get_args():
     parser = argparse.ArgumentParser(description="Train motion dynamics model")
+
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        choices=DATASET_CHOICES,
+        default="ATC",
+        help="Dataset to use: ATC, or an ETH/UCY scene as <ETH|UCY>-<version> (default: ATC)"
+    )
 
     parser.add_argument(
         "--model",
@@ -45,28 +53,35 @@ if __name__ == "__main__":
     
     model_name = args.model
 
-    if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time_v2"
-        model = models.MoDGMMFeatureTimeModel(input_size=3, num_components=3)
-    elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time_v2"
-        model = models.MoDGMMFeatureFFModel(input_size=3, num_components=3)
-    elif model_name == "siren":
-        exp_name = f"distri_gmm_siren_v2"
-        model = models.MoDGMMSirenHybridModel(input_size=3, num_components=3)
+    # Per-dataset settings (normalization bounds + train: batch_size / grid_size / siren_variant)
+    dataset_cfg = load_dataset_config(args.dataset)
+    train_cfg = dataset_cfg.get("train", {})
+    batch_size = train_cfg.get("batch_size", 256)
+
+    model = models.build_model(model_name, train_cfg)
+
+    exp_name = get_exp_name(model_name, args.dataset)
+    print(f"Dataset: {args.dataset} | Model: {model_name} -> {type(model).__name__} grid {tuple(model.grid_size)} "
+          f"| batch {batch_size} | outputs -> models/{exp_name}, runs/{exp_name}")
 
     log_dir = f"runs/{exp_name}/{int(time.time())}"
     os.makedirs(f"models/{exp_name}", exist_ok=True)
 
-    batch_size = 256
-    
     writer = SummaryWriter(log_dir=log_dir)
     best_valid_loss = float('inf')
 
     device = torch.device('cuda')
 
-    dataset_file_path = "atc/1024.csv"
-    dataset = HumanMotionTimeDataset(dataset_file_path)
+    ##### For dataset #####
+    if args.dataset == "ATC":
+        dataset_file_path = "atc/1024.csv"
+        dataset = HumanMotionTimeDataset(dataset_file_path)
+    elif args.dataset.startswith(("ETH-", "UCY-")):
+        # "ETH-eth" -> "eth", "UCY-students003" -> "students003", etc.
+        version = args.dataset.split("-", 1)[1]
+        dataset_file_path = f"eth_ucy/train/{version}.csv"
+        dataset = ETHUCYDataset(dataset_file_path)
+    ###########################
 
     train_loader, val_loader = get_dataloader_onlytrainval(dataset, batch_size=batch_size)
 
@@ -82,9 +97,9 @@ if __name__ == "__main__":
             targets = batch["target"].to(device)
             
             if model_name in ["time_grid", "fourier"]:
-                norm_inputs = normalize_coords_space_time(inputs)
+                norm_inputs = normalize_coords_space_time(inputs, dataset_cfg)
             elif model_name == "siren":
-                norm_inputs = normalize_coords_siren(inputs)
+                norm_inputs = normalize_coords_siren(inputs, dataset_cfg)
 
             output, _ = model(norm_inputs)
             loss = criterion(output, targets)
@@ -107,9 +122,9 @@ if __name__ == "__main__":
                 targets = batch["target"].to(device)
                 
                 if model_name in ["time_grid", "fourier"]:
-                    norm_inputs = normalize_coords_space_time(inputs)
+                    norm_inputs = normalize_coords_space_time(inputs, dataset_cfg)
                 elif model_name == "siren":
-                    norm_inputs = normalize_coords_siren(inputs)
+                    norm_inputs = normalize_coords_siren(inputs, dataset_cfg)
                 
                 output, coords = model(norm_inputs)
                 loss = criterion(output, targets)

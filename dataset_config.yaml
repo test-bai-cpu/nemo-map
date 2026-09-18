@@ -1,0 +1,84 @@
+# Per-dataset configuration, keyed by the --dataset name (see utils.DATASET_CHOICES).
+# Loaded by utils.load_dataset_config(). The x / y / time part feeds utils.normalize_coords_*;
+# the train part feeds models.build_model() and the batch size in train.py.
+#
+#   x, y : [min, max] in metres, mapped linearly to [-1, 1].
+#   time : how the raw time column is mapped to [0, 1]
+#            mode: day     unix seconds -> seconds since midnight / 86400 (wraps every day)
+#            mode: linear  (t - range[0]) / (range[1] - range[0])
+#   train:
+#     batch_size     training batch size
+#     grid_size      [H, W] of the learnable spatial feature grid (all three model types)
+#     siren_variant  hybrid    -> models.MoDGMMSirenHybridModel     (ATC; the paper's main model)
+#                    hybrid_v2 -> models.MoDGMMSirenHybridModel_v2  (dropout + LayerNorm; the class the
+#                                 continuous_MoD ETH/UCY results were trained with)
+#
+# ETH/UCY bounds and time ranges are those of continuous_MoD's get_ethucy_bounds(), and the ETH/UCY
+# train settings (hybrid_v2, 32x32 grid, batch 256) are the continuous_MoD ETH/UCY setup: with
+# --loss legacy they reproduce continuous_MoD's ETH-eth run epoch-for-epoch (verified 2026-09-18).
+# ETH/UCY time is the frame index (one step = 0.4 s).
+
+ATC:
+  x: [-60, 80]
+  y: [-40, 20]
+  time:
+    mode: day
+  train:
+    batch_size: 256
+    grid_size: [64, 64]
+    siren_variant: hybrid
+
+ETH-eth:
+  x: [-8, 14]
+  y: [-4, 14]
+  time:
+    mode: linear
+    range: [0, 1447]
+  train:
+    batch_size: 256
+    grid_size: [32, 32]
+    siren_variant: hybrid_v2
+
+ETH-hotel:
+  x: [-4, 5]
+  y: [-11, 5]
+  time:
+    mode: linear
+    range: [0, 1167]
+  train:
+    batch_size: 256
+    grid_size: [32, 32]
+    siren_variant: hybrid_v2
+
+UCY-students001:
+  x: [-1, 16]
+  y: [-1, 14]
+  time:
+    mode: linear
+    range: [0, 540]
+  train:
+    batch_size: 256
+    grid_size: [32, 32]
+    siren_variant: hybrid_v2
+
+UCY-students003:
+  x: [-1, 16]
+  y: [-1, 14]
+  time:
+    mode: linear
+    range: [0, 540]
+  train:
+    batch_size: 256
+    grid_size: [32, 32]
+    siren_variant: hybrid_v2
+
+UCY-zara01:
+  x: [-1, 16]
+  y: [-1, 14]
+  time:
+    mode: linear
+    range: [0, 872]
+  train:
+    batch_size: 256
+    grid_size: [32, 32]
+    siren_variant: hybrid_v2

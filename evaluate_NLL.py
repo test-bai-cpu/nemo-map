@@ -3,7 +3,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from loss_funcs import wrapped_GMM_nll
-from utils import normalize_coords_space_time, normalize_coords_siren
+from utils import normalize_coords_space_time, normalize_coords_siren, load_dataset_config, get_exp_name, get_scene_name, DATASET_CHOICES
 import compute_NLL_utils
 import models
 import os
@@ -16,7 +16,15 @@ batch_size = 8192
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description="Train motion dynamics model")
+    parser = argparse.ArgumentParser(description="Evaluate a trained motion dynamics model (NLL on the test split)")
+
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        choices=DATASET_CHOICES,
+        default="ATC",
+        help="Dataset to evaluate on: ATC, or an ETH/UCY scene as <ETH|UCY>-<version> (default: ATC)"
+    )
 
     parser.add_argument(
         "--model",
@@ -31,7 +39,7 @@ def get_args():
 
 
 @torch.inference_mode()
-def evaluate(model_name, model, df: pd.DataFrame):
+def evaluate(model_name, model, df: pd.DataFrame, norm_cfg):
     inputs = torch.tensor(df[['x','y','time']].values, dtype=torch.float32)
     targets = torch.tensor(df[['speed','motion_angle']].values, dtype=torch.float32)
 
@@ -47,9 +55,9 @@ def evaluate(model_name, model, df: pd.DataFrame):
         yb = yb.to(device, non_blocking=True)
 
         if model_name in ["time_grid", "fourier"]:
-            xb_norm = normalize_coords_space_time(xb)          # (B,3) on device
+            xb_norm = normalize_coords_space_time(xb, norm_cfg)          # (B,3) on device
         elif model_name == "siren":
-            xb_norm = normalize_coords_siren(xb)
+            xb_norm = normalize_coords_siren(xb, norm_cfg)
 
         GMM_params, _ = model(xb_norm)          # (B,K,6)
 
@@ -72,15 +80,13 @@ def evaluate_hour(hour):
         ]
 
     if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time_v2"
         model = models.MoDGMMFeatureTimeModel(input_size=3, num_components=3)
     elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time_v2"
         model = models.MoDGMMFeatureFFModel(input_size=3, num_components=3)
     elif model_name == "siren":
-        exp_name = f"distri_gmm_siren_v2"
         model = models.MoDGMMSirenHybridModel(input_size=3, num_components=3)
 
+    exp_name = get_exp_name(model_name, dataset_name)
     model_file = f"models/{exp_name}/best.pt"
     save_per_sample_outdir = f"nll_results/{exp_name}"
     os.makedirs(save_per_sample_outdir, exist_ok=True)
@@ -91,7 +97,8 @@ def evaluate_hour(hour):
     state = torch.load(model_file, map_location="cpu", weights_only=True)
     model.load_state_dict(state)
 
-    mean_nll, std_nll, nll_vec = evaluate(model_name, model, test_data)
+    norm_cfg = load_dataset_config(dataset_name)
+    mean_nll, std_nll, nll_vec = evaluate(model_name, model, test_data, norm_cfg)
 
     out = test_data.copy()
     out['nll'] = nll_vec
@@ -111,43 +118,47 @@ def evaluate_hour(hour):
     
 
 
-def evaluate_all(model_name):
+def evaluate_all(model_name, dataset_name):
 
     ################ Config #################
-    dataset_name = "ATC"
+    scene = get_scene_name(dataset_name)          # "atc", "eth", "hotel", "zara01", ...
+    dataset_cfg = load_dataset_config(dataset_name)   # bounds + train settings (model variant / grid size)
 
-    test_data_file = [
-            "atc/1028.csv",
-            "atc/1031.csv",
-            "atc/1104.csv",
-        ]
+    if dataset_name == "ATC":
+        test_data_file = [
+                "atc/1028.csv",
+                "atc/1031.csv",
+                "atc/1104.csv",
+            ]
+    else:
+        test_data_file = f"eth_ucy/test/{scene}.csv"
 
-    if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time_v2"
-        model = models.MoDGMMFeatureTimeModel(input_size=3, num_components=3)
-    elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time_v2"
-        model = models.MoDGMMFeatureFFModel(input_size=3, num_components=3)
-    elif model_name == "siren":
-        exp_name = f"distri_gmm_siren_v2"
-        model = models.MoDGMMSirenHybridModel(input_size=3, num_components=3)
+    model = models.build_model(model_name, dataset_cfg.get("train", {}))   # same architecture as train.py
 
+    exp_name = get_exp_name(model_name, dataset_name)
     model_file = f"models/{exp_name}/best.pt"
     save_per_sample_outdir = f"nll_results/{exp_name}"
+    save_per_sample_file = f"{save_per_sample_outdir}/{scene}-all.csv"   # ATC keeps "atc-all.csv"
     os.makedirs(save_per_sample_outdir, exist_ok=True)
+    print(f"Dataset: {dataset_name} | Model: {model_name} -> {type(model).__name__} grid {tuple(model.grid_size)} "
+          f"| checkpoint: {model_file} | output: {save_per_sample_file}")
     ###########################################
 
-    test_data = compute_NLL_utils.read_test_data(datafile=test_data_file, dataset=dataset_name)
+    # Filter the test split to the same spatial extent the model was normalized with.
+    norm_cfg = dataset_cfg
+    (x_min, x_max), (y_min, y_max) = norm_cfg["x"], norm_cfg["y"]
+    test_data = compute_NLL_utils.read_test_data(datafile=test_data_file, dataset=dataset_name,
+                                                 x_min=x_min, x_max=x_max, y_min=y_min, y_max=y_max)
 
     state = torch.load(model_file, map_location="cpu", weights_only=True)
     model.load_state_dict(state)
 
-    mean_nll, std_nll, nll_vec = evaluate(model_name, model, test_data)
+    mean_nll, std_nll, nll_vec = evaluate(model_name, model, test_data, norm_cfg)
 
     out = test_data.copy()
     out['nll'] = nll_vec
-    out.to_csv(f"{save_per_sample_outdir}/atc-all.csv", index=False)
-    print(f"Saved per-sample NLLs to {save_per_sample_outdir}")
+    out.to_csv(save_per_sample_file, index=False)
+    print(f"Saved per-sample NLLs to {save_per_sample_file}")
     
     print(f"Average NLL: {mean_nll:.3f} | Std: {std_nll:.3f}")
 
@@ -157,6 +168,7 @@ def evaluate_all(model_name):
     #     f.write(f"average_nll: {mean_nll}, std_nll: {std_nll}\n")
 
 
-args = get_args()
-model_name = args.model
-evaluate_all(model_name)
+if __name__ == "__main__":
+    args = get_args()
+    model_name = args.model
+    evaluate_all(model_name, args.dataset)

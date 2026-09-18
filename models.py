@@ -361,3 +361,181 @@ class MoDGMMSirenHybridModel(nn.Module):
         )
 
         return GMM_params, coords
+
+
+############ Copied verbatim from continuous_MoD/models.py (ETH/UCY model). ############
+# Same as MoDGMMSirenHybridModel plus Dropout1d(0.5) + LayerNorm in the spatial net, the time net and
+# the FiLM layer ("for ETH/UCY dataset, it is easily overfitting, so add dropout"). Selected per dataset via
+# dataset_config.yaml -> train.siren_variant: hybrid_v2.
+class MoDGMMSirenHybridModel_v2(nn.Module):
+    def __init__(self, input_size, num_components, grid_size=(64, 64), feature_dim=32):
+        super().__init__()
+        
+        self.num_components = num_components
+        self.grid_size = grid_size  # (H, W), here H = W = 64
+        self.feature_dim = feature_dim
+        
+        hidden_dim = 128
+        
+        hidden_xy = 64
+        hidden_t = 64
+        
+        self.omega_0_first = 30.0
+        self.omega_0_hidden = 1.0
+        
+        self.mode = "film"  # "concat" or "film"
+        
+        output_size = 6 * num_components
+        
+        self.feature_grid = nn.Parameter(
+            torch.randn(grid_size[0], grid_size[1], feature_dim)
+        )
+
+        xy_mlp_input_dim = 2 + feature_dim
+
+        self.xy_net = nn.Sequential(
+            nn.Linear(xy_mlp_input_dim, hidden_dim),
+            nn.Dropout1d(0.5), nn.ReLU(), nn.LayerNorm(hidden_dim),
+            nn.Linear(hidden_dim, hidden_xy),
+            nn.Dropout1d(0.5), nn.ReLU(), nn.LayerNorm(hidden_xy),
+        )
+        
+        self.net = []
+        self.net.append(utils.SineLayer(1, hidden_dim, omega_0=self.omega_0_first, is_first=True))
+        self.net.append(utils.SineLayer(hidden_dim, hidden_t, omega_0=self.omega_0_hidden, is_first=False))
+        self.net.append(nn.Dropout1d(0.5))
+        self.net.append(nn.LayerNorm(hidden_t))
+        self.net = nn.Sequential(*self.net)
+
+        if self.mode == "concat":
+            fused_dim = hidden_xy + hidden_t
+            self.fuse = nn.Identity()
+        else:
+            # FiLM: gamma,beta from time features modulate spatial features
+            self.film = nn.Sequential(
+                nn.Linear(hidden_t, 2 * hidden_xy),
+                nn.Dropout1d(0.5),
+                nn.Tanh()  # keeps gamma, beta bounded; stable
+            )
+            fused_dim = hidden_xy
+        
+        self.head = nn.Linear(fused_dim, output_size)
+        nn.init.zeros_(self.head.bias)
+        with torch.no_grad():
+            b = self.head.bias.view(num_components, 6)
+            b[:, 0] = 0.0      # mix weight
+            b[:, 1] = 0.1      # mu_speed small
+            b[:, 2] = 0.0      # mu_angle ~ 0 (wrapped later)
+            b[:, 3] = -1.386   # log var_speed ~ log(0.5^2)
+            b[:, 4] = -1.386   # log var_angle
+            b[:, 5] = 0.0      # rho logit ~ 0 => rho ~ 0
+
+
+    # Bilinear interpolation
+    def _get_spatial_feature(self, ix, iy):
+        return self.feature_grid[iy, ix]
+
+    def forward(self, coords):
+        x_idx = ((coords[:, 0] + 1) * 0.5) * (self.grid_size[1] - 1)  # width axis
+        y_idx = ((coords[:, 1] + 1) * 0.5) * (self.grid_size[0] - 1)  # height axis
+
+        
+        t = coords[:, 2:3]                             # normalized time in [0,1]
+        
+        # ---- bilinear over spatial grid ----
+        x0 = torch.floor(x_idx).long().clamp(0, self.grid_size[1] - 2)
+        y0 = torch.floor(y_idx).long().clamp(0, self.grid_size[0] - 2)
+        x1 = x0 + 1
+        y1 = y0 + 1
+
+        dx = (x_idx - x0.float()).unsqueeze(1)
+        dy = (y_idx - y0.float()).unsqueeze(1)
+
+        f00 = self._get_spatial_feature(x0, y0)
+        f01 = self._get_spatial_feature(x0, y1)
+        f10 = self._get_spatial_feature(x1, y0)
+        f11 = self._get_spatial_feature(x1, y1)
+
+        spat_feat = (
+            (1 - dx) * (1 - dy) * f00 +
+            (1 - dx) * dy * f01 +
+            dx * (1 - dy) * f10 +
+            dx * dy * f11
+        )  # shape: (B, feature_dim)
+
+        x = coords[:, 0:1]  # (B,1)
+        y = coords[:, 1:2]  # (B,1)
+
+        xy_mlp_input = torch.cat([x, y, spat_feat], dim=-1)  # (B, 2 + C_s)
+        
+        h_xy = self.xy_net(xy_mlp_input)
+        h_t = self.net(t)
+        
+        if self.mode == "concat":
+            h = torch.cat([h_xy, h_t], dim=-1)
+        else:
+            gamma_beta = self.film(h_t)                 # (B, 2*Hxy)
+            Hxy = h_xy.shape[-1]
+            gamma, beta = gamma_beta.split(Hxy, dim=-1) # (B,Hxy),(B,Hxy)
+            gamma = 1.0 + 0.1 * gamma
+            h = gamma * h_xy + beta
+        
+        params = self.head(h)
+        batch_size = coords.size(0)
+        # Reshape `params` to separate components for easier processing
+        params = params.view(batch_size, self.num_components, 6)
+
+        raw_weights = params[:, :, 0]  # Shape: (batch_size, num_components)
+        weights = torch.softmax(raw_weights, dim=-1)  # Ensure weights sum to 1
+        
+        # Extract and process means
+        means = params[:, :, 1:3]  # Shape: (batch_size, num_components, 2)
+        speed = torch.relu(means[:, :, 0])  # Ensure speed >= 0
+        bounded_mean_angle = means[:, :, 1] % (2 * math.pi)  # Wrap angle to [0, 2pi]
+        means = torch.stack([speed, bounded_mean_angle], dim=-1)  # Shape: (batch_size, num_components, 2)
+        
+        # Extract and process log variances
+        log_vars = params[:, :, 3:5]  # Shape: (batch_size, num_components, 2)
+        log_vars = torch.clamp(log_vars, min=-10, max=10)
+        vars = torch.exp(log_vars)  # Variances
+        
+        # Extract and process correlation coefficients
+        raw_corr_coef = params[:, :, 5]  # Shape: (batch_size, num_components)
+        corr_coef = 0.99 * torch.tanh(raw_corr_coef)
+
+        GMM_params = torch.cat(
+            [
+                weights.unsqueeze(-1),              # Shape: (batch_size, num_components, 1)
+                means,                              # Shape: (batch_size, num_components, 2)
+                vars,                               # Shape: (batch_size, num_components, 2)
+                corr_coef.unsqueeze(-1)             # Shape: (batch_size, num_components, 1)
+            ],
+            dim=-1  # Resulting shape: (batch_size, num_components, 6)
+        )
+
+        return GMM_params, coords
+
+
+############ Model construction from the dataset's train config ############
+SIREN_VARIANTS = {
+    "hybrid": MoDGMMSirenHybridModel,
+    "hybrid_v2": MoDGMMSirenHybridModel_v2,
+}
+
+
+def build_model(model_name, train_cfg, num_components=3):
+    """Build the model for --model `model_name` from a dataset's `train` config (dataset_config.yaml).
+
+    Uses train_cfg["grid_size"] (default 64x64) for every model type and train_cfg["siren_variant"]
+    (default "hybrid") for --model siren. train.py, evaluate_NLL.py and generate_MoD_files.py all go
+    through here, so the evaluated architecture always matches the one that was trained.
+    """
+    grid_size = tuple(train_cfg.get("grid_size", (64, 64)))
+    if model_name == "time_grid":
+        return MoDGMMFeatureTimeModel(input_size=3, num_components=num_components, grid_size=grid_size)
+    if model_name == "fourier":
+        return MoDGMMFeatureFFModel(input_size=3, num_components=num_components, grid_size=grid_size)
+    if model_name == "siren":
+        cls = SIREN_VARIANTS[train_cfg.get("siren_variant", "hybrid")]
+        return cls(input_size=3, num_components=num_components, grid_size=grid_size)
+    raise ValueError(f"Unknown model '{model_name}' (expected time_grid, fourier or siren)")

@@ -50,9 +50,9 @@ all_rows = []
 
 
 ############# for ATC dataset #############
-res_file_1 = f"nll_results/distri_gmm_feature_time_v2/atc-all.csv"
-# res_file_1 = f"nll_results/distri_gmm_feature_ff_time_v2/atc-all.csv"
-res_file_2 = f"nll_results/distri_gmm_siren_v2/atc-all.csv"
+res_file_1 = f"nll_results/nemo_atc_time_grid/atc-all.csv"
+# res_file_1 = f"nll_results/nemo_atc_fourier/atc-all.csv"
+res_file_2 = f"nll_results/nemo_atc/atc-all.csv"
 
 # Load both files
 df1 = pd.read_csv(res_file_1)
