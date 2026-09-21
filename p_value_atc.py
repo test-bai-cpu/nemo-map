@@ -1,157 +1,102 @@
-"""Original ATC comparisons and recorded results, preserved separately.
+"""Compare hourly ATC NLLs.
 
-Run from the repository root: python p_value_atc.py
-The active comparison is time-grid versus SIREN; hourly and Fourier
-comparison examples below can be selected as in the original script.
+Run: python3 p_value_atc.py
+     python3 p_value_atc.py --results-dir nll_results --output results/atc.csv
 """
 
-############### For ATC dataset ###############
-
-
-import pandas as pd
-from scipy.stats import ttest_rel, wilcoxon
-import numpy as np
-import scipy.stats as stats
+import argparse
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+from scipy import stats
 
-def paired_ci(a, b, alpha=0.05):
-    d = np.array(a) - np.array(b)
-    n = len(d)
-    mean_diff = np.mean(d)
-    se = stats.sem(d, ddof=1)  # standard error of mean difference
-    t_crit = stats.t.ppf(1 - alpha/2, df=n-1)
-    ci_low = mean_diff - t_crit * se
-    ci_high = mean_diff + t_crit * se
-    return mean_diff, (ci_low, ci_high)
-
-def cohens_dz(a, b):
-    d = np.asarray(a) - np.asarray(b)
-    return d.mean() / d.std(ddof=1)
-
-all_rows = []
+from p_value import KEYS, paired_ci, read_results
 
 
-############# for ATC dataset - hour #############
-for hour in range(9, 21):
-    # res_file_1 = f"nll_results/cliff_map_atc/cliff-map-{hour}.csv"
-    # res_file_1 = f"nll_results/stef_atc/stef-map-{hour}.csv"
-    res_file_1 = f"nll_results/online_cliff_atc/ATC1024_{hour}_{hour+1}_online_online.csv"
-    
-    res_file_2 = f"nll_results/nemo_atc_hour/atc-{hour}.csv"
-
-    # Load both files
-    df1 = pd.read_csv(res_file_1)
-    df2 = pd.read_csv(res_file_2)
-    
-
-    merged_df = pd.merge(
-        df1, df2, on=["time", "x", "y", "speed", "motion_angle"], suffixes=("_A","_B"), validate="one_to_one"
-    )
-
-    all_rows.append(merged_df)
-############################################
+HOURS = range(9, 21)
+METHODS = {
+    "ours": "Ours",
+    "online": "Online CLiFF-map",
+    "cliff": "CLiFF-map",
+    "stef": "STeF-map",
+}
 
 
-
-############# for ATC dataset - nemo map variant #############
-# res_file_1 = f"nll_results/nemo_atc_time_grid/atc-all.csv"
-# # res_file_1 = f"nll_results/nemo_atc_fourier/atc-all.csv"
-# res_file_2 = f"nll_results/nemo_atc/atc-all.csv"
-
-# # Load both files
-# df1 = pd.read_csv(res_file_1)
-# df2 = pd.read_csv(res_file_2)
-
-# merged_df = pd.merge(
-#     df1, df2, on=["time", "x", "y", "speed", "motion_angle"], suffixes=("_A","_B"), validate="one_to_one"
-# )
-
-# all_rows.append(merged_df)
-############################################
+def result_path(root, hour, method):
+    if method == "ours":
+        return root / "nemo_atc_hour" / f"atc-{hour}.csv"
+    if method == "online":
+        return root / "online_cliff_atc" / f"ATC1024_{hour}_{hour+1}_online_online.csv"
+    if method == "cliff":
+        return root / "cliff_map_atc" / f"cliff-map-{hour}.csv"
+    if method == "stef":
+        return root / "stef_atc" / f"stef-map-{hour}.csv"
+    raise ValueError(f"Unknown method: {method}")
 
 
+def build_table(root):
+    all_rows = []
+    for hour in HOURS:
+        frames = {method: read_results([result_path(root, hour, method)], method)
+                  for method in METHODS}
+        matched = frames["ours"]
+        for method in METHODS:
+            if method != "ours":
+                matched = matched.merge(frames[method], on=KEYS, how="inner", validate="one_to_one")
+        before_cleaning = len(matched)
+        matched = matched.loc[np.isfinite(matched[list(METHODS)]).all(axis=1)]
+        counts = ", ".join(f"{method}={len(frame)}" for method, frame in frames.items())
+        print(f"ATC {hour}-{hour+1}: input rows ({counts}); "
+              f"matched={before_cleaning}; finite={len(matched)}")
+        if any(len(frame) != len(matched) for frame in frames.values()):
+            print("  NOTE: table uses only the common finite samples across all four methods.")
+        # Retain only NLL columns to limit memory when pooling all hours.
+        all_rows.append(matched[list(METHODS)].copy())
 
-all_df = pd.concat(all_rows, ignore_index=True)
-# print(f"Total rows before cleaning: {len(all_df)}")
-all_df = all_df.replace([np.inf, -np.inf], np.nan).dropna(subset=["nll_A", "nll_B"])
-# check how many rows are left
-# print(f"Total valid rows for comparison: {len(all_df)}")
+    pooled = pd.concat(all_rows, ignore_index=True)
+    if len(pooled) < 2:
+        raise ValueError(f"ATC: only {len(pooled)} valid common samples")
+    print(f"Total valid common samples: {len(pooled)}")
 
-
-# Paired t-test
-tt = ttest_rel(all_df["nll_A"], all_df["nll_B"], alternative="greater")
-mean_diff, ci = paired_ci(all_df["nll_A"], all_df["nll_B"])
-dz = cohens_dz(all_df["nll_A"], all_df["nll_B"])
-
-print(f"NLL paired t-test: statistic = {tt.statistic}, p = {tt.pvalue:.3e}")
-
-print(f"A (variant): {Path(res_file_1).parent.name}")
-print(f"B (ours): {Path(res_file_2).parent.name}")
-print(
-    f"NLL reduction by ours (A - B) = {mean_diff:.3f}, "
-    f"95% CI of reduction = "
-    f"[{ci[0]:.3f}, {ci[1]:.3f}]"
-)
-# print(f"Cohen's dz = {dz:.3f}")
-
-
-mean_A = all_df["nll_A"].mean()
-mean_B = all_df["nll_B"].mean()
-std_A = all_df["nll_A"].std(ddof=1)
-std_B = all_df["nll_B"].std(ddof=1)
-
-print(f"Mean NLL_A = {mean_A:.3f} ± {std_A:.3f}")
-print(f"Mean NLL_B = {mean_B:.3f} ± {std_B:.3f}")
-
-
-
-
-########## between cliff-map-hour and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 631.2401053695055, p = 0.0
-# Mean diff (A - B) = 1.1885109833182383, 95% CI = [(1.1848207246425961, 1.1922012419938806)]
-# Cohen's dz = 0.2794878693937574
-# Mean NLL_A = 1.9636140284433297 ± 4.953284898734786
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
-
-
-########## between stef-map-hour and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 1217.8110918067423, p = 0.0
-# Mean diff (A - B) = 4.801368375403425, 95% CI = [(4.793640977132464, 4.809095773674386)]
-# Cohen's dz = 0.5391980396649786
-# Mean NLL_A = 5.576471420528516 ± 9.31421058092323
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
+    rows = []
+    for method, label in METHODS.items():
+        values = pooled[method]
+        row = {
+            "Method": label,
+            "NLL↓": f"{values.mean():.3f} ± {values.std(ddof=1):.3f}",
+            "NLL reduction (vs Ours)": "-",
+            "95% CI": "-",
+        }
+        if method != "ours":
+            reduction, (low, high) = paired_ci(values, pooled["ours"])
+            test = stats.ttest_rel(values, pooled["ours"], alternative="greater")
+            row["NLL reduction (vs Ours)"] = f"{reduction:+.3f}"
+            row["95% CI"] = f"[{low:.3f}, {high:.3f}]"
+            print(f"  {label}: reduction={reduction:+.6f}, "
+                  f"95% CI=[{low:.6f}, {high:.6f}], "
+                  f"t={test.statistic:.6f}, p={test.pvalue:.3e}")
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
-########## between online and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 472.52070054158435, p = 0.0
-# Mean diff (A - B) = 0.7523467392701585, 95% CI = [(0.7492260868605483, 0.7554673916797687)]
-# Cohen's dz = 0.20921326562656792
-# Mean NLL_A = 1.5274497843952497 ± 4.155519013526215
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--results-dir", type=Path, default=Path(__file__).resolve().parent / "nll_results")
+    parser.add_argument("--output", type=Path, help="Output CSV (default: RESULTS_DIR/atc_comparison.csv)")
+    args = parser.parse_args()
+    output = args.output if args.output is not None else args.results_dir / "atc_comparison.csv"
+    inputs = {result_path(args.results_dir, hour, method).resolve()
+              for hour in HOURS for method in METHODS}
+    if output.resolve() in inputs:
+        raise ValueError("Output must not overwrite an input NLL file")
+
+    table = build_table(args.results_dir)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(output, index=False)
+    print("\n" + table.to_string(index=False))
+    print(f"\nSaved table to {output}")
 
 
-########## between ff time and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 131.93726039866866, p = 0.0
-# Mean diff (A - B) = 0.06292916620773614, 95% CI = [(0.06199433606015744, 0.06386399635531484)]
-# Cohen's dz = 0.058416541485253125
-# Mean NLL_A = 0.8380322113328263 ± 2.104755802616243
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
-
-
-########## between time grid and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 174.63810776620195, p = 0.0
-# Mean diff (A - B) = 0.0820625700929601, 95% CI = [(0.08114158141482083, 0.08298355877109936)]
-# Cohen's dz = 0.07732276868872581
-# Mean NLL_A = 0.8571656152180497 ± 2.113225588463205
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
+if __name__ == "__main__":
+    main()

@@ -68,11 +68,9 @@ def evaluate(model_name, model, df: pd.DataFrame, norm_cfg):
     return float(nll.mean()), float(nll.std()), nll
 
 
-def evaluate_hour(hour):
+def evaluate_hour(hour, model_name="siren", dataset_name="ATC"):
 
     ################ Config #################
-    dataset_name = "ATC"
-
     test_data_file = [
             "atc/1028.csv",
             "atc/1031.csv",
@@ -88,7 +86,7 @@ def evaluate_hour(hour):
 
     exp_name = get_exp_name(model_name, dataset_name)
     model_file = f"models/{exp_name}/best.pt"
-    save_per_sample_outdir = f"nll_results/{exp_name}"
+    save_per_sample_outdir = f"nll_results/{exp_name}_hour"
     os.makedirs(save_per_sample_outdir, exist_ok=True)
     ###########################################
 
@@ -107,15 +105,10 @@ def evaluate_hour(hour):
     
     # print(f"Average NLL: {mean_nll:.6f} | Std: {std_nll:.6f}")
 
-    file_name = f"results/{exp_name}/atc-{hour}.txt"
-    os.makedirs(f"results/{exp_name}", exist_ok=True)
-    with open(file_name, "w") as f:
-        f.write(f"average_nll: {mean_nll}, std_nll: {std_nll}\n")
-
-
-# for hour in range(9,21):
-#     evaluate_hour(hour)
-    
+    # file_name = f"logs/{exp_name}_atc_hour/atc-{hour}.txt"
+    # os.makedirs(f"logs/{exp_name}_atc_hour", exist_ok=True)
+    # with open(file_name, "w") as f:
+    #     f.write(f"average_nll: {mean_nll}, std_nll: {std_nll}\n")
 
 
 def evaluate_all(model_name, dataset_name):
@@ -172,3 +165,7 @@ if __name__ == "__main__":
     args = get_args()
     model_name = args.model
     evaluate_all(model_name, args.dataset)
+    
+    # for hour in range(9,21):
+    #     evaluate_hour(hour)
+    

@@ -6,12 +6,6 @@ Run: python p_value.py
      python p_value.py --results-dir nll_results --output results/ethucy.csv
 
 Columns are ETH, HOTEL, UNIV (students003), and ZARA (zara01).
-All methods use the common set of matched samples with finite NLLs in each
-scene, so the single Ours row also underlies every paired reduction.
-CI: two-sided 95% Student-t interval for per-sample baseline-minus-ours NLL.
-The one-sided paired t-test (baseline > ours) is printed to the console.
-These calculations retain the original assumption of independent paired
-sample differences; they do not account for within-trajectory dependence.
 """
 
 import argparse
@@ -123,7 +117,7 @@ def main():
     args = parser.parse_args()
     table = build_table(args.results_dir)
     output = args.output if args.output is not None else args.results_dir / "ethucy_comparison.csv"
-    # Never allow an output option to overwrite any of the input measurements.
+
     inputs = {p.resolve() for scene in SCENES for method in ["ours", *METHODS]
               for p in result_paths(args.results_dir, scene, method)}
     if output.resolve() in inputs:
