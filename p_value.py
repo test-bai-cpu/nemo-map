@@ -1,244 +1,138 @@
-############### For ATC dataset ###############
+"""Compare ETH/UCY NLLs and write a publication-style table to one CSV.
 
+ATC comparisons and historical results are preserved in p_value_atc.py.
 
-import pandas as pd
-from scipy.stats import ttest_rel, wilcoxon
-import numpy as np
-import scipy.stats as stats
+Run: python p_value.py
+     python p_value.py --results-dir nll_results --output results/ethucy.csv
+
+Columns are ETH, HOTEL, UNIV (students003), and ZARA (zara01).
+All methods use the common set of matched samples with finite NLLs in each
+scene, so the single Ours row also underlies every paired reduction.
+CI: two-sided 95% Student-t interval for per-sample baseline-minus-ours NLL.
+The one-sided paired t-test (baseline > ours) is printed to the console.
+These calculations retain the original assumption of independent paired
+sample differences; they do not account for within-trajectory dependence.
+"""
+
+import argparse
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+
+KEYS = ["time", "x", "y", "speed", "motion_angle"]
+SCENES = {"eth": "ETH", "hotel": "HOTEL", "students003": "UNIV", "zara01": "ZARA"}
+METHODS = {
+    "cliff": "CLiFF-map",
+    "online": "Online CLiFF-map",
+    "stef": "STeF-map",
+}
+BATCH_COUNTS = {
+    "online": {"eth": 3, "hotel": 3, "students003": 2, "zara01": 2},
+    "stef": {"eth": 15, "hotel": 12, "students003": 6, "zara01": 9},
+}
 
 
 def paired_ci(a, b, alpha=0.05):
-    d = np.array(a) - np.array(b)
-    n = len(d)
-    mean_diff = np.mean(d)
-    se = stats.sem(d, ddof=1)  # standard error of mean difference
-    t_crit = stats.t.ppf(1 - alpha/2, df=n-1)
-    ci_low = mean_diff - t_crit * se
-    ci_high = mean_diff + t_crit * se
-    return mean_diff, (ci_low, ci_high)
-
-def cohens_dz(a, b):
-    d = np.asarray(a) - np.asarray(b)
-    return d.mean() / d.std(ddof=1)
-
-all_rows = []
+    """Mean paired reduction and its two-sided Student-t confidence interval."""
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    if a.ndim != 1 or a.shape != b.shape or len(a) < 2:
+        raise ValueError("Expected equal-length 1D paired arrays with at least two samples")
+    d = a - b
+    if not np.isfinite(d).all():
+        raise ValueError("Paired differences must be finite")
+    mean_diff = d.mean()
+    margin = stats.t.ppf(1 - alpha / 2, df=len(d) - 1) * stats.sem(d, ddof=1)
+    return mean_diff, (mean_diff - margin, mean_diff + margin)
 
 
-############# for ATC dataset - hour #############
-# for hour in range(9, 21):
-#     # res_file_1 = f"nll_results/cliff/cliff-map-hours/cliff-map-{hour}.csv"
-#     # res_file_1 = f"nll_results/stef/stef_thres1/stef-map-{hour}.csv"
-#     res_file_1 = f"nll_results/online/ATC1024_{hour}_{hour+1}_online_online.csv"
-    
-#     # res_file_1 = f"nll_results/NIR/distri_gmm_feature_ff_time_exp100/atc-{hour}.csv"
-#     # res_file_1 = f"nll_results/NIR/distri_gmm_feature_time_exp100/atc-{hour}.csv"
-    
-#     res_file_2 = f"nll_results/NIR/distri_gmm_siren_exp100/atc-{hour}.csv"
-
-#     # Load both files
-#     df1 = pd.read_csv(res_file_1)
-#     df2 = pd.read_csv(res_file_2)
-    
-
-#     merged_df = pd.merge(
-#         df1, df2, on=["time", "x", "y", "speed", "motion_angle"], suffixes=("_A","_B"), validate="one_to_one"
-#     )
-
-#     all_rows.append(merged_df)
-############################################
+def result_paths(root, scene, method):
+    if method == "ours":
+        return [root / f"nemo_{scene}" / f"{scene}-all.csv"]
+    if method == "cliff":
+        return [root / "cliff_map_ethucy" / f"{scene}.csv"]
+    folder = "online_cliff_ethucy" if method == "online" else "stef_ethucy"
+    return [root / folder / scene / f"b{i}.csv" for i in range(BATCH_COUNTS[method][scene])]
 
 
-############# for ATC dataset #############
-res_file_1 = f"nll_results/nemo_atc_time_grid/atc-all.csv"
-# res_file_1 = f"nll_results/nemo_atc_fourier/atc-all.csv"
-res_file_2 = f"nll_results/nemo_atc/atc-all.csv"
-
-# Load both files
-df1 = pd.read_csv(res_file_1)
-df2 = pd.read_csv(res_file_2)
-
-merged_df = pd.merge(
-    df1, df2, on=["time", "x", "y", "speed", "motion_angle"], suffixes=("_A","_B"), validate="one_to_one"
-)
-
-all_rows.append(merged_df)
-############################################
-
-
-
-############# for ETH/UCY dataset, online cliffmap #############
-# # version = "eth"
-# # version = "hotel"
-# version = "students003"
-# # version = "students001"
-# # version = "zara01"
-
-# if version == "eth":
-#     num_batches = 3
-# elif version == "hotel":
-#     num_batches = 3
-# elif version == "students003":
-#     num_batches = 2
-# elif version == "students001":
-#     num_batches = 1
-# elif version == "zara01":
-#     num_batches = 2
-
-# for batch in range(num_batches):
-#     res_file_1 = f"nll_results/online_cliff_ethucy/{version}/b{batch}.csv"
-    
-#     res_file_2 = f"nll_results/NIR_ethucy/{version}.csv"
-    
-#     # Load both files
-#     df1 = pd.read_csv(res_file_1)
-#     df2 = pd.read_csv(res_file_2)
-    
-
-#     merged_df = pd.merge(
-#         df1, df2, on=["time", "x", "y", "speed", "motion_angle"], suffixes=("_A","_B"), validate="one_to_one"
-#     )
-#     all_rows.append(merged_df)
-############################################
+def read_results(paths, method):
+    """Concatenate all expected batches, checking sample identity globally."""
+    frames = []
+    for path in paths:
+        frame = pd.read_csv(path)
+        missing = set(KEYS + ["nll"]) - set(frame.columns)
+        if missing:
+            raise ValueError(f"{path}: missing columns {sorted(missing)}")
+        frames.append(frame[KEYS + ["nll"]])
+    result = pd.concat(frames, ignore_index=True)
+    if result[KEYS].isna().any().any():
+        raise ValueError(f"{method}: missing sample keys in {paths}")
+    if result.duplicated(KEYS).any():
+        raise ValueError(f"{method}: duplicate sample keys, including across batches, in {paths}")
+    return result.rename(columns={"nll": method})
 
 
-############# for ETH/UCY dataset, normal cliffmap #############
-# version = "eth"
-# # version = "hotel"
-# # version = "students003"
-# # version = "students001"
-# # version = "zara01"
+def compare_scene(root, scene):
+    method_ids = ["ours", *METHODS]
+    frames = {method: read_results(result_paths(root, scene, method), method)
+              for method in method_ids}
+    matched = frames["ours"]
+    for method in METHODS:
+        matched = matched.merge(frames[method], on=KEYS, how="inner", validate="one_to_one")
+    before_cleaning = len(matched)
+    matched = matched.loc[np.isfinite(matched[method_ids]).all(axis=1)]
+    if len(matched) < 2:
+        raise ValueError(f"{scene}: only {len(matched)} valid common samples")
 
-# res_file_1 = f"nll_results/cliff_ethucy/{version}.csv"
-# res_file_2 = f"nll_results/NIR_ethucy/{version}.csv"
+    counts = ", ".join(f"{method}={len(frame)}" for method, frame in frames.items())
+    print(f"{SCENES[scene]}: input rows ({counts}); matched={before_cleaning}; finite={len(matched)}")
+    if any(len(frame) != len(matched) for frame in frames.values()):
+        print("  NOTE: table uses only the common finite samples across all four methods.")
 
-# # Load both files
-# df1 = pd.read_csv(res_file_1)
-# df2 = pd.read_csv(res_file_2)
-
-# merged_df = pd.merge(
-#     df1, df2, on=["time", "x", "y", "speed", "motion_angle"], suffixes=("_A","_B"), validate="one_to_one"
-# )
-
-# all_rows.append(merged_df)
-############################################
-
-
-
-############# for ETH/UCY dataset, STeF-map #############
-# version = "eth"
-# # version = "hotel"
-# # version = "students003"
-# # version = "zara01"
-
-# if version == "eth":
-#     num_batches = 15
-# elif version == "hotel":
-#     num_batches = 12
-# elif version == "students003":
-#     num_batches = 6
-# elif version == "zara01":
-#     num_batches = 9
-
-# for batch in range(num_batches):
-#     res_file_1 = f"nll_results/stef_ethucy_v2/{version}/b{batch}.csv"
-    
-#     res_file_2 = f"nll_results/NIR_ethucy/{version}.csv"
-#     # res_file_2 = f"nll_results/cliff_ethucy/{version}.csv"
-
-#     # Load both files
-#     df1 = pd.read_csv(res_file_1)
-#     df2 = pd.read_csv(res_file_2)
-    
-
-#     merged_df = pd.merge(
-#         df1, df2, on=["time", "x", "y", "speed", "motion_angle"], suffixes=("_A","_B"), validate="one_to_one"
-#     )
-
-#     all_rows.append(merged_df)
-############################################
+    cells = [f"{matched.ours.mean():.3f} ± {matched.ours.std(ddof=1):.3f}"]
+    for method, label in METHODS.items():
+        a, b = matched[method], matched["ours"]
+        mean_diff, (low, high) = paired_ci(a, b)
+        test = stats.ttest_rel(a, b, alternative="greater")
+        cells.extend([
+            f"{a.mean():.3f} ± {a.std(ddof=1):.3f}",
+            f"{mean_diff:+.3f}",
+            f"[{low:.3f}, {high:.3f}]",
+        ])
+        print(f"  {label}: reduction={mean_diff:+.6f}, 95% CI=[{low:.6f}, {high:.6f}], "
+              f"t={test.statistic:.6f}, p={test.pvalue:.3e}")
+    return cells
 
 
-all_df = pd.concat(all_rows, ignore_index=True)
-# print(f"Total rows before cleaning: {len(all_df)}")
-all_df = all_df.replace([np.inf, -np.inf], np.nan).dropna(subset=["nll_A", "nll_B"])
-# check how many rows are left
-# print(f"Total valid rows for comparison: {len(all_df)}")
+def build_table(root):
+    rows = ["Ours"]
+    for label in METHODS.values():
+        rows.extend([label, "Reduction vs Ours", "95% CI"])
+    table = pd.DataFrame({"Method": rows})
+    for scene, column in SCENES.items():
+        table[column] = compare_scene(root, scene)
+    return table
 
 
-# Paired t-test
-tt = ttest_rel(all_df["nll_A"], all_df["nll_B"], alternative="greater")
-mean_diff, ci = paired_ci(all_df["nll_A"], all_df["nll_B"])
-dz = cohens_dz(all_df["nll_A"], all_df["nll_B"])
-
-print(f"NLL paired t-test: statistic = {tt.statistic}, p = {tt.pvalue:.3e}")
-
-print(f"A (variant): {Path(res_file_1).parent.name}")
-print(f"B (ours): {Path(res_file_2).parent.name}")
-print(
-    f"NLL reduction by ours (A - B) = {mean_diff:.3f}, "
-    f"95% CI of reduction = "
-    f"[{ci[0]:.3f}, {ci[1]:.3f}]"
-)
-# print(f"Cohen's dz = {dz:.3f}")
-
-
-mean_A = all_df["nll_A"].mean()
-mean_B = all_df["nll_B"].mean()
-std_A = all_df["nll_A"].std(ddof=1)
-std_B = all_df["nll_B"].std(ddof=1)
-
-print(f"Mean NLL_A = {mean_A:.3f} ± {std_A:.3f}")
-print(f"Mean NLL_B = {mean_B:.3f} ± {std_B:.3f}")
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--results-dir", type=Path, default=Path(__file__).resolve().parent / "nll_results")
+    parser.add_argument("--output", type=Path, help="Output CSV (default: RESULTS_DIR/ethucy_comparison.csv)")
+    args = parser.parse_args()
+    table = build_table(args.results_dir)
+    output = args.output if args.output is not None else args.results_dir / "ethucy_comparison.csv"
+    # Never allow an output option to overwrite any of the input measurements.
+    inputs = {p.resolve() for scene in SCENES for method in ["ours", *METHODS]
+              for p in result_paths(args.results_dir, scene, method)}
+    if output.resolve() in inputs:
+        raise ValueError("Output must not overwrite an input NLL file")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(output, index=False)
+    print("\n" + table.to_string(index=False))
+    print(f"\nSaved table to {output}")
 
 
-
-
-########## between cliff-map-hour and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 631.2401053695055, p = 0.0
-# Mean diff (A - B) = 1.1885109833182383, 95% CI = [(1.1848207246425961, 1.1922012419938806)]
-# Cohen's dz = 0.2794878693937574
-# Mean NLL_A = 1.9636140284433297 ± 4.953284898734786
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
-
-
-########## between stef-map-hour and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 1217.8110918067423, p = 0.0
-# Mean diff (A - B) = 4.801368375403425, 95% CI = [(4.793640977132464, 4.809095773674386)]
-# Cohen's dz = 0.5391980396649786
-# Mean NLL_A = 5.576471420528516 ± 9.31421058092323
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
-
-
-########## between online and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 472.52070054158435, p = 0.0
-# Mean diff (A - B) = 0.7523467392701585, 95% CI = [(0.7492260868605483, 0.7554673916797687)]
-# Cohen's dz = 0.20921326562656792
-# Mean NLL_A = 1.5274497843952497 ± 4.155519013526215
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
-
-
-########## between ff time and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 131.93726039866866, p = 0.0
-# Mean diff (A - B) = 0.06292916620773614, 95% CI = [(0.06199433606015744, 0.06386399635531484)]
-# Cohen's dz = 0.058416541485253125
-# Mean NLL_A = 0.8380322113328263 ± 2.104755802616243
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
-
-
-########## between time grid and siren ##########
-# Total rows before cleaning: 5101093
-# Total valid rows for comparison: 5101093
-# NLL paired t-test: statistic = 174.63810776620195, p = 0.0
-# Mean diff (A - B) = 0.0820625700929601, 95% CI = [(0.08114158141482083, 0.08298355877109936)]
-# Cohen's dz = 0.07732276868872581
-# Mean NLL_A = 0.8571656152180497 ± 2.113225588463205
-# Mean NLL_B = 0.7751030451250897 ± 2.052713915794647
+if __name__ == "__main__":
+    main()
