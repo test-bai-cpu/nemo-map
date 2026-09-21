@@ -6,3 +6,4 @@ matplotlib==3.1.2
 tqdm==4.64.1
 tensorboard==2.13.0
 pytz==2022.6
+pyyaml==6.0

@@ -34,7 +34,7 @@ def get_exp_name(model_name, dataset):
         ETH-eth    + siren     -> "nemo_eth"
         UCY-zara01 + fourier   -> "nemo_zara01_fourier"
     """
-    return f"old_nemo_{get_scene_name(dataset)}{EXP_MODEL_SUFFIX[model_name]}"
+    return f"nemo_{get_scene_name(dataset)}{EXP_MODEL_SUFFIX[model_name]}"
 
 
 def load_dataset_config(dataset, config_file=DATASET_CONFIG_FILE):

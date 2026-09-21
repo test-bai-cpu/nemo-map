@@ -531,6 +531,7 @@ def build_model(model_name, train_cfg, num_components=3):
     through here, so the evaluated architecture always matches the one that was trained.
     """
     grid_size = tuple(train_cfg.get("grid_size", (64, 64)))
+    num_components = int(train_cfg.get("num_components", 3))
     if model_name == "time_grid":
         return MoDGMMFeatureTimeModel(input_size=3, num_components=num_components, grid_size=grid_size)
     if model_name == "fourier":

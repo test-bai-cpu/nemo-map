@@ -154,6 +154,47 @@ def nll_of_point(gmm_components, point):
     return nll
 
 
+def nll_of_point_old(gmm_components, point):
+    prob_total = 0
+    
+    v = float(point['speed'])
+    a = float(point['motion_angle'])
+    
+    mu_s = gmm_components['speed'].to_numpy()        # (K,)
+    mu_a = gmm_components['motion_angle'].to_numpy()    # (K,)
+    w    = gmm_components['weight'].to_numpy()          # (K,)
+
+    c11  = gmm_components['cov1'].to_numpy()            # (K,)
+    c12  = gmm_components['cov2'].to_numpy()
+    c21  = gmm_components['cov3'].to_numpy()
+    c22  = gmm_components['cov4'].to_numpy()
+    
+    wraps = np.array([a - 2*np.pi, a, a + 2*np.pi], dtype=np.float64)   # (3,)
+    for aw in wraps:
+        ds = v - mu_s                          # (K,)
+        da = circ_diff_signed(aw, mu_a)    # (K,)
+        det = c11 * c22 - c12 * c21                      # (K,)
+        det = np.clip(det, 1e-12, None)   
+        
+        inv00 =  c22 / det
+        inv01 = -c12 / det
+        inv10 = -c21 / det
+        inv11 =  c11 / det
+        
+        maha = ds*(inv00*ds + inv01*da) + da*(inv10*ds + inv11*da)
+
+        norm_const = 2*np.pi * np.sqrt(det)                               # (K,)
+        comp_prob = np.exp(-0.5 * maha) / norm_const                      # (K,)
+
+        # mix with weights
+        prob_wrap = np.sum(w * comp_prob)                                 # scalar
+        prob_total += prob_wrap
+
+    prob_total = max(prob_total, 1e-12)
+    nll = -np.log(prob_total)
+    return nll
+
+
 def find_closest_location(locations, point, threshold):
     min_dist = float('inf')
     closest_loc = None
@@ -209,6 +250,7 @@ def compute_nll(test_data, MoD_data, threshold):
         else:
             gmm_components = gmm_dict[closest_loc]
             nll = nll_of_point(gmm_components, point)
+            # nll = nll_of_point_old(gmm_components, point)
             if nll is not None:
                 nlls.append(nll)
         
@@ -247,3 +289,78 @@ def gmm_tensor_to_dataframe(GMM_params_tensor, point):
         })
 
     return pd.DataFrame(gmm_rows)
+
+
+###### For ATC dataset, CLiFF-map, generated from matlab version ######
+def read_cliff_map_data_obs_version(datafile):
+    MoD = pd.read_csv(datafile, header=None)
+
+    MoD.columns = ["x", "y", "motion_angle", "speed",
+                    "cov4", "cov2", "cov3", "cov1", "weight",
+                    "observation_ratio", "motion_ratio"]
+    
+    MoD = MoD[["x", "y", "speed", "motion_angle", "cov1", "cov2", "cov3", "cov4", "weight", "motion_ratio"]]
+    MoD['motion_angle'] = np.mod(MoD['motion_angle'], 2 * np.pi)
+    MoD['weight'] = MoD.groupby(['x', 'y'])['weight'].transform(lambda x: x / x.sum())
+
+    return MoD
+
+###### For ATC dataset, CLiFF-map, generated from pycliff version ######
+def read_cliff_map_data_python(datafile):
+    MoD = pd.read_csv(datafile, header=None)
+
+    MoD.columns = ["x", "y", "speed", "motion_angle",
+                    "cov1", "cov2", "cov3", "cov4", "weight",
+                    "motion_ratio"]
+    MoD['motion_angle'] = np.mod(MoD['motion_angle'], 2 * np.pi)
+    MoD['weight'] = MoD.groupby(['x', 'y'])['weight'].transform(lambda x: x / x.sum())
+
+    return MoD
+
+
+###### For ATC dataset, online cliff ######
+def read_cliff_map_data_obs_version_online(datafile):
+    MoD = pd.read_csv(datafile, header=None)
+
+    MoD.columns = ["x", "y", "speed", "motion_angle",
+                    "cov1", "cov2", "cov3", "cov4", "weight",
+                    "motion_ratio", "decay"]
+    
+    MoD = MoD[["x", "y", "speed", "motion_angle", "cov1", "cov2", "cov3", "cov4", "weight", "motion_ratio"]]
+    MoD['motion_angle'] = np.mod(MoD['motion_angle'], 2 * np.pi)
+    MoD['weight'] = MoD.groupby(['x', 'y'])['weight'].transform(lambda x: x / x.sum())
+
+    return MoD
+
+
+#### For ETH-UCY dataset, online cliff ####
+def read_test_data_with_frame(batch_num, datafile, dataset="ATC"):
+    test_data = pd.read_csv(datafile)
+    test_data = test_data.rename(columns={"frame": "time", "pedestrian_ID": "person_id", "pos_x": "x", "pos_y": "y"})
+    test_data['speed'] = np.linalg.norm(test_data[['v_x', 'v_y']], axis=1)
+    test_data['motion_angle'] = np.arctan2(test_data['v_y'], test_data['v_x'])
+    test_data['motion_angle'] = np.mod(test_data['motion_angle'], 2 * np.pi)
+    test_data = test_data[['time', 'x', 'y', 'speed', 'motion_angle']]
+    
+    min_frame = batch_num * 500
+    max_frame = (batch_num + 1) * 500
+
+    test_data = test_data[(test_data["time"] >= min_frame) & (test_data["time"] < max_frame)]
+    # print(test_data)
+    return test_data
+
+
+#### For ETH-UCY dataset, STeF-map ####
+def read_test_data_with_frame_stef(batch_num, datafile):
+    test_data = pd.read_csv(datafile)
+    test_data = test_data.rename(columns={"frame": "time", "pedestrian_ID": "person_id", "pos_x": "x", "pos_y": "y"})
+    test_data['speed'] = np.linalg.norm(test_data[['v_x', 'v_y']], axis=1)
+    test_data['motion_angle'] = np.arctan2(test_data['v_y'], test_data['v_x'])
+    test_data['motion_angle'] = np.mod(test_data['motion_angle'], 2 * np.pi)
+    test_data = test_data[['time', 'x', 'y', 'speed', 'motion_angle']]
+    
+    min_frame = batch_num * 100
+    max_frame = (batch_num + 1) * 100
+
+    test_data = test_data[(test_data["time"] >= min_frame) & (test_data["time"] < max_frame)]
+    return test_data

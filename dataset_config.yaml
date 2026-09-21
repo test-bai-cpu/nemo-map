@@ -26,6 +26,7 @@ ATC:
   train:
     batch_size: 256
     grid_size: [64, 64]
+    num_components: 3
     siren_variant: hybrid
 
 ETH-eth:
@@ -35,8 +36,9 @@ ETH-eth:
     mode: linear
     range: [0, 1447]
   train:
-    batch_size: 256
+    batch_size: 128
     grid_size: [32, 32]
+    num_components: 3
     siren_variant: hybrid_v2
 
 ETH-hotel:
@@ -46,19 +48,9 @@ ETH-hotel:
     mode: linear
     range: [0, 1167]
   train:
-    batch_size: 256
+    batch_size: 128
     grid_size: [32, 32]
-    siren_variant: hybrid_v2
-
-UCY-students001:
-  x: [-1, 16]
-  y: [-1, 14]
-  time:
-    mode: linear
-    range: [0, 540]
-  train:
-    batch_size: 256
-    grid_size: [32, 32]
+    num_components: 3
     siren_variant: hybrid_v2
 
 UCY-students003:
@@ -68,8 +60,9 @@ UCY-students003:
     mode: linear
     range: [0, 540]
   train:
-    batch_size: 256
+    batch_size: 128
     grid_size: [32, 32]
+    num_components: 3
     siren_variant: hybrid_v2
 
 UCY-zara01:
@@ -79,6 +72,7 @@ UCY-zara01:
     mode: linear
     range: [0, 872]
   train:
-    batch_size: 256
+    batch_size: 128
     grid_size: [32, 32]
+    num_components: 3
     siren_variant: hybrid_v2

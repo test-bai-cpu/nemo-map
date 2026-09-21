@@ -42,7 +42,15 @@ def get_args():
         help="Model type to use: time_grid, fourier, or siren"
     )
 
+    parser.add_argument("--num-components", type=int, default=None,
+                        help="Override the number of GMM components in the dataset config")
+    parser.add_argument("--grid-size", type=int, default=None,
+                        help="Override the square grid size in the dataset config")
     args = parser.parse_args()
+    if args.num_components is not None and args.num_components < 1:
+        parser.error("--num-components must be at least 1")
+    if args.grid_size is not None and args.grid_size < 2:
+        parser.error("--grid-size must be at least 2")
     return args
 
 
@@ -56,11 +64,19 @@ if __name__ == "__main__":
     # Per-dataset settings (normalization bounds + train: batch_size / grid_size / siren_variant)
     dataset_cfg = load_dataset_config(args.dataset)
     train_cfg = dataset_cfg.get("train", {})
+    if args.num_components is not None:
+        train_cfg["num_components"] = args.num_components
+    if args.grid_size is not None:
+        train_cfg["grid_size"] = [args.grid_size, args.grid_size]
     batch_size = train_cfg.get("batch_size", 256)
 
     model = models.build_model(model_name, train_cfg)
 
     exp_name = get_exp_name(model_name, args.dataset)
+    if args.num_components is not None or args.grid_size is not None:
+        grid = model.grid_size
+        grid_label = str(grid[0]) if grid[0] == grid[1] else f"{grid[0]}x{grid[1]}"
+        exp_name = f"{exp_name.replace('_', '-')}-com{model.num_components}-grid{grid_label}"
     print(f"Dataset: {args.dataset} | Model: {model_name} -> {type(model).__name__} grid {tuple(model.grid_size)} "
           f"| batch {batch_size} | outputs -> models/{exp_name}, runs/{exp_name}")
 
