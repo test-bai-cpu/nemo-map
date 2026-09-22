@@ -213,7 +213,7 @@ def main():
     )
     parser.add_argument("--dataset", choices=["ATC", "ETHUCY"], default="ETHUCY")
     parser.add_argument(
-        "--scenes", nargs="+", choices=[*ETHUCY_SCENES, "students001"],
+        "--scenes", nargs="+", choices=ETHUCY_SCENES,
         help="ETH/UCY scenes (default: eth hotel students003 zara01)",
     )
     parser.add_argument(

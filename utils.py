@@ -7,7 +7,7 @@ from torch import nn
 DATASET_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset_config.yaml")
 
 # Valid values for --dataset in train.py / evaluate_NLL.py. Each needs an entry in dataset_config.yaml.
-DATASET_CHOICES = ["ATC", "ETH-eth", "ETH-hotel", "UCY-students001", "UCY-students003", "UCY-zara01"]
+DATASET_CHOICES = ["ATC", "ETH-eth", "ETH-hotel", "UCY-students003", "UCY-zara01"]
 
 # Suffix appended to the experiment name for each --model. siren is the main model and gets no suffix.
 EXP_MODEL_SUFFIX = {

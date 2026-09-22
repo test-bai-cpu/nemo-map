@@ -8,7 +8,7 @@
 </div>
 
 
-The **official** implementation of ICLR'26 paper: "NeMo-map: Neural Implicit Flow Fields for Spatio-Temporal Motion Mapping"
+The implementation of ICLR'26 paper: "NeMo-map: Neural Implicit Flow Fields for Spatio-Temporal Motion Mapping"
 
 ## 📝 Overview
 Safe and efficient robot operation in complex human environments can benefit
@@ -25,7 +25,13 @@ patterns and high performance in the trajectory prediction downstream task.
 ## 🛠️ Run the experiment
 
 ### Clone the code
-after `git clone`, also do `git lfs pull`, to pull the large data files in `atc/`
+
+Make sure Git LFS is installed. After cloning the repository, run `git lfs install` and `git lfs pull` from the repository directory to download the files stored with Git LFS:
+
+- `atc/`, `eth_ucy/`: datasets
+- `models/`: trained model weights
+- `nll_results/`: negative log-likelihood (NLL) evaluation results
+- `MoDs/`: generated maps of dynamics (MoDs)
 
 
 ### Setup environment
@@ -35,28 +41,48 @@ conda activate mod
 ```
 
 ### For training
-``` bash
-python3 train.py  --model siren
+
+To train the main SIREN model on ATC using the default dataset configuration:
+
+```bash
+python3 train.py --dataset ATC --model siren
 ```
-The argument --model can be one of ["siren", "time_grid", "fourier"]. In the paper, we use siren as the main model.
-For the ablation study, we provide two alternative temporal encodings: time grid and Fourier features.
 
-The argument --dataset selects the data: `ATC` (default) or one of `ETH-eth`, `ETH-hotel`, `UCY-students001`, `UCY-students003`, `UCY-zara01`. Per-dataset settings (normalization bounds, batch size, grid size, model variant) live in `dataset_config.yaml`.
-Output folders are named `nemo_<scene>` for siren, with a `_time_grid` or `_fourier` suffix for the other two models (e.g. `models/nemo_atc`, `models/nemo_eth_fourier`).
+ - The `--dataset` argument accepts `ATC` (default), `ETH-eth`, `ETH-hotel`, `UCY-students003`, or `UCY-zara01`. Per-dataset settings, including normalization bounds, batch size, number of mixture components, grid size, and SIREN variant, are defined in `dataset_config.yaml`. The default ATC configuration uses 3 components and a 64×64 grid.
 
-The training runs for 100 epochs, and models are saved in `models/nemo_atc`. For time_grid and fourier version, trained models are also provided `models/nemo_atc_time_grid`, and `models/nemo_atc_fourier`.
+- The `--model` argument accepts `siren` (default), `time_grid`, or `fourier`. SIREN is the main model used in the paper; time grid and Fourier features are alternative temporal encodings compared in the ablation study in Table 5.
+
+Output folders are named `nemo_<scene>` for SIREN, with a `_time_grid` or `_fourier` suffix for the other models. The command above saves checkpoints to `models/nemo_atc/` and TensorBoard logs to `runs/nemo_atc/<timestamp>/`.
+
+Use either or both of the following optional arguments to override the dataset configuration:
+
+- `--num-components`: number of SWGMM mixture components.
+- `--grid-size`: side length of the square spatial feature grid; for example, `32` creates a 32×32 grid.
+
+For example, to train with 3 components and a 32×32 grid:
+
+```bash
+python3 train.py --model siren --dataset ATC --num-components 3 --grid-size 32
+```
+
+Training requires a CUDA-capable GPU and runs for 100 epochs. The checkpoint with the lowest validation loss is saved as `best.pt` in the corresponding model folder. Pretrained models are provided under `models/`, including `models/nemo_atc/` and `models/nemo_eth/`.
 
 ### For evaluation
-``` bash
-python3 evaluate_NLL.py --model siren
-```
-After training the model, we can evaluate it by computing the Negative Log Likelihood (NLL) value. Same here, the arg can be chosen from ["siren", "time_grid", "fourier"]. Detailed NLL results for each test sample will be saved in `nll_results/nemo_atc/atc-all.csv`.
 
+Evaluate a trained ATC model on the test split using negative log-likelihood (NLL):
+
+```bash
+python3 evaluate_NLL.py --dataset ATC
+python3 evaluate_NLL.py --dataset ETH-eth
+python3 evaluate_NLL.py --dataset ETH-hotel
+python3 evaluate_NLL.py --dataset UCY-students003
+python3 evaluate_NLL.py --dataset UCY-zara01
+```
 
 ### For querying MoDs
 
 ``` bash
-python3 generate_MoD_files.py --model siren
+python3 generate_MoD_files.py
 ```
 We can query the trained model to generated maps of dynamics for each hour of the ATC dataset. The generated MoDs are saved in `MoDs/nemo_atc/<hour>.csv`
 
@@ -70,21 +96,18 @@ We can also plot the generated MoDs. Two version of plotting are provided.
 - Version `max` more clearly shows the dominant flow, only displaying the mixture component with the largest weight.
 
 The generated MoD figures are saved in `MoDs/nemo_atc/all_png` and `MoDs/nemo_atc/max_png` folders.
-### ATC SIREN component/grid sweep
 
-Override the dataset configuration for an individual training run:
 
-```bash
-python train.py --dataset ATC --model siren --num-components 3 --grid-size 32
-```
+## Correction of Reported NLL Values
 
-This saves checkpoints to `models/nemo-atc-com3-grid32/` and TensorBoard logs
-under `runs/nemo-atc-com3-grid32/`. If either override is supplied, the folder
-name includes both effective values. Without overrides, the existing config
-and experiment name are used.
+In an earlier version of the paper, the reported negative log-likelihood (NLL) values were affected by an error in our implementation of the semi-wrapped normal density. All affected numbers have been corrected in the revised version of the paper.
 
-Run all component counts 1–15 and grid sizes 8, 16, 32, 64, 128, 256:
+The initial implementation shifted the observed orientation by $2\pi k$ first and wrapped the angular residual into $[-\pi, \pi)$ afterwards. Since wrapping cancels the shift, the three winding terms were identical, and the implemented density was three times the nearest winding term rather than the sum in Eq. (2) of the paper. As a result, the reported NLL values were lower than the correct values.
 
-```bash
-bash run_atc_siren_sweep.sh
-```
+The error affected (i) the training objective of NeMo-map, including all ablation variants, (ii) the evaluation of NeMo-map, and (iii) the evaluation of CLiFF-map and Online CLiFF-map, which share the SWGMM likelihood code. STeF-map represents orientation as a histogram and does not use the winding sum, so it was unaffected by this implementation error.
+
+We retrained all NeMo-map models (the main model, the temporal encoding variants in Section 4.5, and the hyperparameter ablations in Appendix E of the paper) with the corrected loss, using the same architecture, hyperparameters, and random seed. CLiFF-map and Online CLiFF-map were re-evaluated with the corrected density.
+
+Separately, we updated the NLL computation for STeF-map. STeF-map models orientation only, so its NLL is computed over orientation. Its NLL was previously computed from the bin probabilities. We now divide these probabilities by the bin width ($2\pi/8$) to obtain a density. This changes its reported NLL values and ensures that all methods use densities rather than mixing densities and bin probabilities; STeF-map's NLL remains orientation-only.
+
+We thank Iacopo Catalano (University of Turku) for identifying this error and for helpful discussions on the evaluation protocol.

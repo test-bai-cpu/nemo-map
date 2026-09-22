@@ -172,7 +172,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset", choices=["ATC", "ETHUCY"], default="ETHUCY")
     parser.add_argument("--map-type", choices=["cliff", "online"], default="online")
-    parser.add_argument("--scenes", nargs="+", choices=[*ETHUCY_SCENES, "students001"],
+    parser.add_argument("--scenes", nargs="+", choices=ETHUCY_SCENES,
                         help="ETH/UCY scenes (default: eth hotel students003 zara01)")
     parser.add_argument("--hours", nargs="+", type=int, choices=range(24),
                         help="ATC hours (default: 9 through 20)")

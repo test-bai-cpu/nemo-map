@@ -57,7 +57,7 @@ if __name__ == "__main__":
     ###########################################################################
 
     ####################  OR: get map grids from another MoD #######################
-    cliff_mod_file = "MoDs/cliff/cliff.csv"
+    cliff_mod_file = "MoDs/cliff_map_atc/cliff-map-14.csv"
     MoD_columns = ["x", "y", "motion_angle", "velocity",
                         "cov4", "cov2", "cov3", "cov1", "weight",
                         "observation_ratio", "motion_ratio"]
