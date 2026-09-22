@@ -1,5 +1,10 @@
 """Evaluate STeF maps for ATC (hourly) and ETH/UCY (100-frame batches).
 
+STeF-map stores a histogram over eight direction bins. To compare it with the
+SWGMM-based methods (which return densities over orientation), the bin
+probability is converted to a density by dividing by the bin width (2*pi/8).
+STeF-map models orientation only, so its NLL is computed over orientation.
+
 Examples:
     python evaluate_stef.py --dataset ATC
     python evaluate_stef.py --dataset ATC --hours 9 10
@@ -22,6 +27,10 @@ ATC_HOURS = range(9, 21)
 ETHUCY_SCENES = ("eth", "hotel", "students003", "zara01")
 MAP_COLUMNS = ["x", "y", *[f"theta_{i}" for i in range(1, 9)]]
 
+NUM_BINS = 8
+BIN_WIDTH = 2 * np.pi / NUM_BINS   # width of one direction bin in radians
+DENSITY_FLOOR = 1e-12              # same density floor as the SWGMM-based methods
+
 
 # STeF likelihood: a normalized histogram over eight circular direction bins.
 def normalize_histogram(histogram):
@@ -32,20 +41,18 @@ def normalize_histogram(histogram):
 
 
 def get_nll_from_stef(cell_in_stefmap, point):
-    direction_weight_list = cell_in_stefmap[2:]
-    direction_weight_array = np.array(direction_weight_list)
-    direction_weight_normalize = normalize_histogram(direction_weight_array)
-    
-    index = int(round((4 * point["motion_angle"]) / np.pi)) % 8
+    """NLL of the observed orientation under the STeF histogram, as a density.
 
-    prob = direction_weight_normalize[index]
-    
-    if prob < 1e-12:
-        prob = 1e-12
-        
-    nll = -np.log(prob)
+    Bins are centred at 0, 45, 90, ... degrees, i.e. bin 0 covers
+    [-22.5, 22.5) degrees. The bin probability P_b is spread uniformly over
+    the bin width, giving a piecewise-constant density P_b / BIN_WIDTH that
+    integrates to one over [0, 2*pi).
+    """
+    hist = normalize_histogram(np.asarray(cell_in_stefmap[2:], dtype=float))
+    index = int(round((NUM_BINS / (2 * np.pi)) * point["motion_angle"])) % NUM_BINS
 
-    return nll
+    density = hist[index] / BIN_WIDTH
+    return -np.log(max(density, DENSITY_FLOOR))
 
 
 def _read_stef_map(map_file, bounds=None):
@@ -85,7 +92,7 @@ def compute_nll(test_data, STeF_data, threshold):
         cell = find_nearest_cell(point, STeF_data, threshold)
         if cell is None:
             not_find += 1
-            nlls.append(-np.log(1e-12))
+            nlls.append(-np.log(DENSITY_FLOOR))
         else:
             nlls.append(get_nll_from_stef(cell, point))
     average_nll = np.mean(nlls) if nlls else float("nan")
@@ -229,3 +236,6 @@ if __name__ == "__main__":
     main()
 
 
+###### Run ######
+# python3 evaluate_stef.py --dataset ATC
+# python3 evaluate_stef.py --dataset ETHUCY

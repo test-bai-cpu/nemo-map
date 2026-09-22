@@ -193,3 +193,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+###### Run ######
+# python3 evaluate_cliff.py --dataset ATC --map-type cliff
+# python3 evaluate_cliff.py --dataset ATC --map-type online
+# python3 evaluate_cliff.py --dataset ETHUCY --map-type cliff
+# python3 evaluate_cliff.py --dataset ETHUCY --map-type online

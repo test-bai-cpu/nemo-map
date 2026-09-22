@@ -111,7 +111,7 @@ def evaluate_hour(hour, model_name="siren", dataset_name="ATC"):
     #     f.write(f"average_nll: {mean_nll}, std_nll: {std_nll}\n")
 
 
-def evaluate_all(model_name, dataset_name):
+def evaluate_all(model_name, dataset_name, num_component=None, grid_size=None):
 
     ################ Config #################
     scene = get_scene_name(dataset_name)          # "atc", "eth", "hotel", "zara01", ...
@@ -126,9 +126,16 @@ def evaluate_all(model_name, dataset_name):
     else:
         test_data_file = f"eth_ucy/test/{scene}.csv"
 
-    model = models.build_model(model_name, dataset_cfg.get("train", {}))   # same architecture as train.py
+    train_cfg = dataset_cfg.get("train", {})
+    if num_component is not None:
+        train_cfg["num_components"] = num_component
+    if grid_size is not None:
+        train_cfg["grid_size"] = [grid_size, grid_size]
+    model = models.build_model(model_name, train_cfg)   # same architecture as train.py
 
     exp_name = get_exp_name(model_name, dataset_name)
+    if num_component is not None or grid_size is not None:
+        exp_name = f"{exp_name.replace('_', '-')}-com{model.num_components}-grid{grid_size}"
     model_file = f"models/{exp_name}/best.pt"
     save_per_sample_outdir = f"nll_results/{exp_name}"
     save_per_sample_file = f"{save_per_sample_outdir}/{scene}-all.csv"   # ATC keeps "atc-all.csv"
@@ -155,17 +162,38 @@ def evaluate_all(model_name, dataset_name):
     
     print(f"Average NLL: {mean_nll:.3f} | Std: {std_nll:.3f}")
 
-    # file_name = f"results/{exp_name}/atc-all.txt"
-    # os.makedirs(f"results/{exp_name}", exist_ok=True)
-    # with open(file_name, "w") as f:
-    #     f.write(f"average_nll: {mean_nll}, std_nll: {std_nll}\n")
+    # return {"num_components": model.num_components,
+    #         "average_nll": mean_nll, "std_nll": std_nll}
+    
+    # return {"grid_size": grid_size,
+    #         "average_nll": mean_nll, "std_nll": std_nll}
 
 
 if __name__ == "__main__":
     args = get_args()
     model_name = args.model
-    evaluate_all(model_name, args.dataset)
     
+    evaluate_all(model_name, args.dataset)
+
     # for hour in range(9,21):
     #     evaluate_hour(hour)
-    
+
+    #### for ablation study of num_components ####
+    # grid_size = 64
+    # results = []
+    # for num_component in range(1, 16):
+    #     results.append(evaluate_all(model_name, args.dataset, num_component, grid_size))
+    # os.makedirs("results", exist_ok=True)
+    # file_name = "results/atc_num_components.csv"
+    # pd.DataFrame(results).to_csv(file_name, index=False)
+    # print(f"Saved component comparison to {file_name}")
+
+    #### for ablation study of grid size ####
+    num_component = 3
+    results = []
+    for grid_size in [8, 16, 32, 64, 128, 256]:
+        results.append(evaluate_all(model_name, args.dataset, num_component, grid_size))
+    os.makedirs("results", exist_ok=True)
+    file_name = "results/atc_grid_size.csv"
+    pd.DataFrame(results).to_csv(file_name, index=False)
+    print(f"Saved grid size comparison to {file_name}")

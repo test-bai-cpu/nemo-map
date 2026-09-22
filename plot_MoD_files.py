@@ -5,6 +5,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 from plot_utils import plot_cliff_map_with_weight
+from utils import get_exp_name
 
 def get_args():
     parser = argparse.ArgumentParser(description="Train motion dynamics model")
@@ -34,13 +35,9 @@ if __name__ == "__main__":
     model_name = args.model
 
     version = args.version
+    dataset_name = "ATC"
 
-    if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time_v2"
-    elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time_v2"
-    elif model_name == "siren":
-        exp_name = f"distri_gmm_siren_v2"
+    exp_name = get_exp_name(model_name, dataset_name)
 
     for hour in range(9,21):
         print(hour)

@@ -8,7 +8,7 @@ import models
 import time
 import os
 
-from utils import normalize_coords_space_time, normalize_coords_siren
+from utils import normalize_coords_space_time, normalize_coords_siren, load_dataset_config, get_exp_name
 
 def get_args():
     parser = argparse.ArgumentParser(description="Train motion dynamics model")
@@ -28,28 +28,26 @@ if __name__ == "__main__":
     args = get_args()
 
     model_name = args.model
+    dataset_name = "ATC"
+    dataset_cfg = load_dataset_config(dataset_name)
 
-    if model_name == "time_grid":
-        exp_name = f"distri_gmm_feature_time_v2"
-        model = models.MoDGMMFeatureTimeModel(input_size=3, num_components=3)
-    elif model_name == "fourier":
-        exp_name = f"distri_gmm_feature_ff_time_v2"
-        model = models.MoDGMMFeatureFFModel(input_size=3, num_components=3)
-    elif model_name == "siren":
-        exp_name = f"distri_gmm_siren_v2"
-        model = models.MoDGMMSirenHybridModel(input_size=3, num_components=3)
+    model = models.build_model(model_name, dataset_cfg.get("train", {}))   # same architecture as train.py
 
+    exp_name = get_exp_name(model_name, dataset_name)
     model_dir = f"models/{exp_name}/best.pt"
 
     # Load the saved weights
     model.load_state_dict(torch.load(model_dir, weights_only=True))
     model.eval()
 
+    norm_cfg = dataset_cfg
+
     ## get ATC map grids
     atc_file = "atc/1024.csv"
     atc_data = pd.read_csv(atc_file, header=None, names=["time", "person_id", "x", "y", "speed", "motion_angle"])
 
-    x_min, x_max, y_min, y_max, step = -60, 80, -40, 20, 1
+    (x_min, x_max), (y_min, y_max) = norm_cfg["x"], norm_cfg["y"]
+    step = 1
     x_centers = np.arange(x_min, x_max, step)
     y_centers = np.arange(y_min, y_max, step)
 
@@ -87,9 +85,9 @@ if __name__ == "__main__":
         example_inputs = torch.cat([example_locations, t_col], dim=1)  # (N,3)
         
         if model_name in ["time_grid", "fourier"]:
-            norm_inputs = normalize_coords_space_time(example_inputs)
+            norm_inputs = normalize_coords_space_time(example_inputs, norm_cfg)
         elif model_name == "siren":
-            norm_inputs = normalize_coords_siren(example_inputs)
+            norm_inputs = normalize_coords_siren(example_inputs, norm_cfg)
 
         print(f"Number of locations: {example_locations.size(0)}")
 
